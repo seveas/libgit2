@@ -1,0 +1,59 @@
+This work was packaged for Debian by:
+
+    Dennis Kaarsemaker <dennis@kaarsemaker.net> on Wed Oct 24 23:37:39 CEST 2012
+
+It was downloaded from:
+
+    <http://github.com/libgit2/libgit2>
+
+Upstream Author:
+
+    The libgit2 authors.
+
+Copyright:
+
+    Copyright (C) 2009-2012 the libgit2 contributors,
+
+License:
+
+ libgit2 is Copyright (C) 2009-2012 the libgit2 contributors,
+ unless otherwise stated. See the AUTHORS file for details.
+
+ Note that the only valid version of the GPL as far as this project
+ is concerned is _this_ particular version of the license (ie v2, not
+ v2.2 or v3.x or whatever), unless explicitly otherwise stated.
+
+----------------------------------------------------------------------
+
+			LINKING EXCEPTION
+
+ In addition to the permissions in the GNU General Public License,
+ the authors give you unlimited permission to link the compiled
+ version of this library into combinations with other programs,
+ and to distribute those combinations without any restriction
+ coming from the use of this file.  (The General Public License
+ restrictions do apply in other respects; for example, they cover
+ modification of the file, and distribution when not linked into
+ a combined executable.)
+
+----------------------------------------------------------------------
+
+    This library is free software; you can redistribute it and/or
+    modify it under the terms of the GNU Lesser General Public
+    License as published by the Free Software Foundation; either
+    version 2.1 of the License, or (at your option) any later version.
+
+    This library is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+    Lesser General Public License for more details.
+
+    You should have received a copy of the GNU Lesser General Public
+    License along with this library; if not, write to the Free Software
+    Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+
+The Debian packaging is:
+
+    Copyright (C) 2012 Dennis Kaarsemaker <dennis@kaarsemaker.net>
+
+and is licensed under the same license

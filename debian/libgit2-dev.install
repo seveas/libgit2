@@ -1,0 +1,4 @@
+/usr/include/git2.h
+/usr/include/git2/*
+/usr/lib/pkgconfig/libgit2.pc
+/usr/lib/libgit2.so
