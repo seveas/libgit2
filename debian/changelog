@@ -1,3 +1,9 @@
+libgit2 (0.17.0.1+git20130302) quantal; urgency=low
+
+  * Release from the development branch
+
+ -- Dennis Kaarsemaker <dennis@kaarsemaker.net>  Sun, 03 Mar 2013 00:10:40 +0100
+
 libgit2 (0.17.0.1-1) quantal; urgency=low
 
   * Initial release.
