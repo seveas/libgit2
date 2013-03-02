@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2012 the libgit2 contributors
+ * Copyright (C) the libgit2 contributors. All rights reserved.
  *
  * This file is part of libgit2, distributed under the GNU GPL v2 with
  * a Linking Exception. For full terms see the included COPYING file.
@@ -11,7 +11,9 @@
 #include "strmap.h"
 
 #define GIT_ATTR_CONFIG   "core.attributesfile"
+#define GIT_ATTR_CONFIG_DEFAULT ".config/git/attributes"
 #define GIT_IGNORE_CONFIG "core.excludesfile"
+#define GIT_IGNORE_CONFIG_DEFAULT ".config/git/ignore"
 
 typedef struct {
 	int initialized;
@@ -23,7 +25,7 @@ typedef struct {
 } git_attr_cache;
 
 typedef int (*git_attr_file_parser)(
-	git_repository *, const char *, git_attr_file *);
+	git_repository *, void *, const char *, git_attr_file *);
 
 extern int git_attr_cache__init(git_repository *repo);
 
@@ -39,6 +41,7 @@ extern int git_attr_cache__push_file(
 	const char *filename,
 	git_attr_file_source source,
 	git_attr_file_parser parse,
+	void *parsedata, /* passed through to parse function */
 	git_vector *stack);
 
 extern int git_attr_cache__internal_file(

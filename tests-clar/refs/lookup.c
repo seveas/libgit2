@@ -25,7 +25,7 @@ void test_refs_lookup__with_resolve(void)
 	cl_assert(git_reference_cmp(a, b) == 0);
 	git_reference_free(b);
 
-	cl_git_pass(git_reference_lookup_resolved(&b, g_repo, "head-tracker", 5));
+	cl_git_pass(git_reference_lookup_resolved(&b, g_repo, "HEAD_TRACKER", 5));
 	cl_assert(git_reference_cmp(a, b) == 0);
 	git_reference_free(b);
 
@@ -36,7 +36,7 @@ void test_refs_lookup__oid(void)
 {
 	git_oid tag, expected;
 
-	cl_git_pass(git_reference_name_to_oid(&tag, g_repo, "refs/tags/point_to_blob"));
+	cl_git_pass(git_reference_name_to_id(&tag, g_repo, "refs/tags/point_to_blob"));
 	cl_git_pass(git_oid_fromstr(&expected, "1385f264afb75a56a5bec74243be9b367ba4ca08"));
 	cl_assert(git_oid_cmp(&tag, &expected) == 0);
 }

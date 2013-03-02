@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2012 the libgit2 contributors
+ * Copyright (C) the libgit2 contributors. All rights reserved.
  *
  * This file is part of libgit2, distributed under the GNU GPL v2 with
  * a Linking Exception. For full terms see the included COPYING file.
@@ -20,6 +20,49 @@ void git_libgit2_version(int *major, int *minor, int *rev)
 	*major = LIBGIT2_VER_MAJOR;
 	*minor = LIBGIT2_VER_MINOR;
 	*rev = LIBGIT2_VER_REVISION;
+}
+
+int git_libgit2_capabilities()
+{
+	return 0
+#ifdef GIT_THREADS
+		| GIT_CAP_THREADS
+#endif
+#if defined(GIT_SSL) || defined(GIT_WINHTTP)
+		| GIT_CAP_HTTPS
+#endif
+	;
+}
+
+/* Declarations for tuneable settings */
+extern size_t git_mwindow__window_size;
+extern size_t git_mwindow__mapped_limit;
+
+void git_libgit2_opts(int key, ...)
+{
+	va_list ap;
+
+	va_start(ap, key);
+
+	switch(key) {
+	case GIT_OPT_SET_MWINDOW_SIZE:
+		git_mwindow__window_size = va_arg(ap, size_t);
+		break;
+
+	case GIT_OPT_GET_MWINDOW_SIZE:
+		*(va_arg(ap, size_t *)) = git_mwindow__window_size;
+		break;
+
+	case GIT_OPT_SET_MWINDOW_MAPPED_LIMIT:
+		git_mwindow__mapped_limit = va_arg(ap, size_t);
+		break;
+
+	case GIT_OPT_GET_MWINDOW_MAPPED_LIMIT:
+		*(va_arg(ap, size_t *)) = git_mwindow__mapped_limit;
+		break;
+	}
+
+	va_end(ap);
 }
 
 void git_strarray_free(git_strarray *array)
@@ -162,6 +205,42 @@ int git__strtol32(int32_t *result, const char *nptr, const char **endptr, int ba
 	return error;
 }
 
+int git__strcmp(const char *a, const char *b)
+{
+	while (*a && *b && *a == *b)
+		++a, ++b;
+	return (int)(*(const unsigned char *)a) - (int)(*(const unsigned char *)b);
+}
+
+int git__strcasecmp(const char *a, const char *b)
+{
+	while (*a && *b && tolower(*a) == tolower(*b))
+		++a, ++b;
+	return (tolower(*a) - tolower(*b));
+}
+
+int git__strncmp(const char *a, const char *b, size_t sz)
+{
+	while (sz && *a && *b && *a == *b)
+		--sz, ++a, ++b;
+	if (!sz)
+		return 0;
+	return (int)(*(const unsigned char *)a) - (int)(*(const unsigned char *)b);
+}
+
+int git__strncasecmp(const char *a, const char *b, size_t sz)
+{
+	int al, bl;
+
+	do {
+		al = (unsigned char)tolower(*a);
+		bl = (unsigned char)tolower(*b);
+		++a, ++b;
+	} while (--sz && al && al == bl);
+
+	return al - bl;
+}
+
 void git__strntolower(char *str, size_t len)
 {
 	size_t i;
@@ -179,12 +258,17 @@ void git__strtolower(char *str)
 int git__prefixcmp(const char *str, const char *prefix)
 {
 	for (;;) {
-		char p = *(prefix++), s;
+		unsigned char p = *(prefix++), s;
 		if (!p)
 			return 0;
 		if ((s = *(str++)) != p)
 			return s - p;
 	}
+}
+
+int git__prefixcmp_icase(const char *str, const char *prefix)
+{
+	return strncasecmp(str, prefix, strlen(prefix));
 }
 
 int git__suffixcmp(const char *str, const char *suffix)
@@ -214,6 +298,24 @@ char *git__strtok(char **end, const char *sep)
 			**end = '\0';
 			++*end;
 		}
+
+		return start;
+	}
+
+	return NULL;
+}
+
+/* Similar to strtok, but does not collapse repeated tokens. */
+char *git__strsep(char **end, const char *sep)
+{
+	char *start = *end, *ptr = *end;
+
+	while (*ptr && !strchr(sep, *ptr))
+		++ptr;
+
+	if (*ptr) {
+		*end = ptr + 1;
+		*ptr = '\0';
 
 		return start;
 	}
@@ -367,6 +469,30 @@ uint32_t git__hash(const void *key, int len, uint32_t seed)
  *
  * Copyright (c) 1990 Regents of the University of California.
  * All rights reserved.
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ * notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ * notice, this list of conditions and the following disclaimer in the
+ * documentation and/or other materials provided with the distribution.
+ * 3. [rescinded 22 July 1999]
+ * 4. Neither the name of the University nor the names of its contributors
+ * may be used to endorse or promote products derived from this software
+ * without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
  */
 int git__bsearch(
 	void **array,
@@ -375,11 +501,11 @@ int git__bsearch(
 	int (*compare)(const void *, const void *),
 	size_t *position)
 {
-	unsigned int lim;
+	size_t lim;
 	int cmp = -1;
 	void **part, **base = array;
 
-	for (lim = (unsigned int)array_len; lim != 0; lim >>= 1) {
+	for (lim = array_len; lim != 0; lim >>= 1) {
 		part = base + (lim >> 1);
 		cmp = (*compare)(key, *part);
 		if (cmp == 0) {
@@ -395,12 +521,43 @@ int git__bsearch(
 	if (position)
 		*position = (base - array);
 
-	return (cmp == 0) ? 0 : -1;
+	return (cmp == 0) ? 0 : GIT_ENOTFOUND;
+}
+
+int git__bsearch_r(
+	void **array,
+	size_t array_len,
+	const void *key,
+	int (*compare_r)(const void *, const void *, void *),
+	void *payload,
+	size_t *position)
+{
+	size_t lim;
+	int cmp = -1;
+	void **part, **base = array;
+
+	for (lim = array_len; lim != 0; lim >>= 1) {
+		part = base + (lim >> 1);
+		cmp = (*compare_r)(key, *part, payload);
+		if (cmp == 0) {
+			base = part;
+			break;
+		}
+		if (cmp > 0) { /* key > p; take right partition */
+			base = part + 1;
+			lim--;
+		} /* else take left partition */
+	}
+
+	if (position)
+		*position = (base - array);
+
+	return (cmp == 0) ? 0 : GIT_ENOTFOUND;
 }
 
 /**
  * A strcmp wrapper
- * 
+ *
  * We don't want direct pointers to the CRT on Windows, we may
  * get stdcall conflicts.
  */
@@ -415,12 +572,8 @@ int git__strcmp_cb(const void *a, const void *b)
 int git__parse_bool(int *out, const char *value)
 {
 	/* A missing value means true */
-	if (value == NULL) {
-		*out = 1;
-		return 0;
-	}
-
-	if (!strcasecmp(value, "true") ||
+	if (value == NULL ||
+		!strcasecmp(value, "true") ||
 		!strcasecmp(value, "yes") ||
 		!strcasecmp(value, "on")) {
 		*out = 1;
@@ -428,10 +581,29 @@ int git__parse_bool(int *out, const char *value)
 	}
 	if (!strcasecmp(value, "false") ||
 		!strcasecmp(value, "no") ||
-		!strcasecmp(value, "off")) {
+		!strcasecmp(value, "off") ||
+		value[0] == '\0') {
 		*out = 0;
 		return 0;
 	}
 
 	return -1;
+}
+
+size_t git__unescape(char *str)
+{
+	char *scan, *pos = str;
+
+	for (scan = str; *scan; pos++, scan++) {
+		if (*scan == '\\' && *(scan + 1) != '\0')
+			scan++; /* skip '\' but include next char */
+		if (pos != scan)
+			*pos = *scan;
+	}
+
+	if (pos != scan) {
+		*pos = '\0';
+	}
+
+	return (pos - str);
 }

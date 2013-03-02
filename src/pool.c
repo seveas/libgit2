@@ -206,6 +206,11 @@ char *git_pool_strdup(git_pool *pool, const char *str)
 	return git_pool_strndup(pool, str, strlen(str));
 }
 
+char *git_pool_strdup_safe(git_pool *pool, const char *str)
+{
+	return str ? git_pool_strdup(pool, str) : NULL;
+}
+
 char *git_pool_strcat(git_pool *pool, const char *a, const char *b)
 {
 	void *ptr;
@@ -275,6 +280,8 @@ uint32_t git_pool__system_page_size(void)
 		SYSTEM_INFO info;
 		GetSystemInfo(&info);
 		size = (uint32_t)info.dwPageSize;
+#elif defined(__amigaos4__)
+		size = (uint32_t)4096; /* 4K as there is no global value we can query */
 #else
 		size = (uint32_t)sysconf(_SC_PAGE_SIZE);
 #endif

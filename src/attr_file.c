@@ -5,10 +5,6 @@
 #include "git2/tree.h"
 #include <ctype.h>
 
-const char *git_attr__true  = "[internal]__TRUE__";
-const char *git_attr__false = "[internal]__FALSE__";
-const char *git_attr__unset = "[internal]__UNSET__";
-
 static int sort_by_hash_and_name(const void *a_raw, const void *b_raw);
 static void git_attr_rule__clear(git_attr_rule *rule);
 
@@ -57,12 +53,14 @@ fail:
 }
 
 int git_attr_file__parse_buffer(
-	git_repository *repo, const char *buffer, git_attr_file *attrs)
+	git_repository *repo, void *parsedata, const char *buffer, git_attr_file *attrs)
 {
 	int error = 0;
 	const char *scan = NULL;
 	char *context = NULL;
 	git_attr_rule *rule = NULL;
+
+	GIT_UNUSED(parsedata);
 
 	assert(buffer && attrs);
 
@@ -127,7 +125,7 @@ int git_attr_file__new_and_load(
 
 	if (!(error = git_futils_readbuffer(&content, path)))
 		error = git_attr_file__parse_buffer(
-			NULL, git_buf_cstr(&content), *attrs_ptr);
+			NULL, NULL, git_buf_cstr(&content), *attrs_ptr);
 
 	git_buf_free(&content);
 
@@ -139,18 +137,23 @@ int git_attr_file__new_and_load(
 	return error;
 }
 
-void git_attr_file__free(git_attr_file *file)
+void git_attr_file__clear_rules(git_attr_file *file)
 {
 	unsigned int i;
 	git_attr_rule *rule;
-
-	if (!file)
-		return;
 
 	git_vector_foreach(&file->rules, i, rule)
 		git_attr_rule__free(rule);
 
 	git_vector_free(&file->rules);
+}
+
+void git_attr_file__free(git_attr_file *file)
+{
+	if (!file)
+		return;
+
+	git_attr_file__clear_rules(file);
 
 	if (file->pool_is_allocated) {
 		git_pool_clear(file->pool);
@@ -178,7 +181,7 @@ int git_attr_file__lookup_one(
 	const char *attr,
 	const char **value)
 {
-	unsigned int i;
+	size_t i;
 	git_attr_name name;
 	git_attr_rule *rule;
 
@@ -188,9 +191,9 @@ int git_attr_file__lookup_one(
 	name.name_hash = git_attr_file__name_hash(attr);
 
 	git_attr_file__foreach_matching_rule(file, path, i, rule) {
-		int pos = git_vector_bsearch(&rule->assigns, &name);
+		size_t pos;
 
-		if (pos >= 0) {
+		if (!git_vector_bsearch(&pos, &rule->assigns, &name)) {
 			*value = ((git_attr_assignment *)
 					  git_vector_get(&rule->assigns, pos))->value;
 			break;
@@ -206,16 +209,17 @@ bool git_attr_fnmatch__match(
 	const git_attr_path *path)
 {
 	int fnm;
+	int icase_flags = (match->flags & GIT_ATTR_FNMATCH_ICASE) ? FNM_CASEFOLD : 0;
 
 	if (match->flags & GIT_ATTR_FNMATCH_DIRECTORY && !path->is_dir)
 		return false;
 
 	if (match->flags & GIT_ATTR_FNMATCH_FULLPATH)
-		fnm = p_fnmatch(match->pattern, path->path, FNM_PATHNAME);
+		fnm = p_fnmatch(match->pattern, path->path, FNM_PATHNAME | icase_flags);
 	else if (path->is_dir)
-		fnm = p_fnmatch(match->pattern, path->basename, FNM_LEADING_DIR);
+		fnm = p_fnmatch(match->pattern, path->basename, FNM_LEADING_DIR | icase_flags);
 	else
-		fnm = p_fnmatch(match->pattern, path->basename, 0);
+		fnm = p_fnmatch(match->pattern, path->basename, icase_flags);
 
 	return (fnm == FNM_NOMATCH) ? false : true;
 }
@@ -236,31 +240,29 @@ bool git_attr_rule__match(
 git_attr_assignment *git_attr_rule__lookup_assignment(
 	git_attr_rule *rule, const char *name)
 {
-	int pos;
+	size_t pos;
 	git_attr_name key;
 	key.name = name;
 	key.name_hash = git_attr_file__name_hash(name);
 
-	pos = git_vector_bsearch(&rule->assigns, &key);
+	if (git_vector_bsearch(&pos, &rule->assigns, &key))
+		return NULL;
 
-	return (pos >= 0) ? git_vector_get(&rule->assigns, pos) : NULL;
+	return git_vector_get(&rule->assigns, pos);
 }
 
 int git_attr_path__init(
 	git_attr_path *info, const char *path, const char *base)
 {
+	ssize_t root;
+
 	/* build full path as best we can */
 	git_buf_init(&info->full, 0);
 
-	if (base != NULL && git_path_root(path) < 0) {
-		if (git_buf_joinpath(&info->full, base, path) < 0)
-			return -1;
-		info->path = info->full.ptr + strlen(base);
-	} else {
-		if (git_buf_sets(&info->full, path) < 0)
-			return -1;
-		info->path = info->full.ptr;
-	}
+	if (git_path_join_unrooted(&info->full, path, base, &root) < 0)
+		return -1;
+
+	info->path = info->full.ptr + root;
 
 	/* remove trailing slashes */
 	while (info->full.size > 0) {
@@ -338,9 +340,12 @@ int git_attr_fnmatch__parse(
 	const char **base)
 {
 	const char *pattern, *scan;
-	int slash_count;
+	int slash_count, allow_space;
 
 	assert(spec && base && *base);
+
+	spec->flags = (spec->flags & GIT_ATTR_FNMATCH_ALLOWSPACE);
+	allow_space = (spec->flags != 0);
 
 	pattern = *base;
 
@@ -349,8 +354,6 @@ int git_attr_fnmatch__parse(
 		*base = git__next_line(pattern);
 		return GIT_ENOTFOUND;
 	}
-
-	spec->flags = 0;
 
 	if (*pattern == '[') {
 		if (strncmp(pattern, "[attr]", 6) == 0) {
@@ -368,8 +371,10 @@ int git_attr_fnmatch__parse(
 	slash_count = 0;
 	for (scan = pattern; *scan != '\0'; ++scan) {
 		/* scan until (non-escaped) white space */
-		if (git__isspace(*scan) && *(scan - 1) != '\\')
-			break;
+		if (git__isspace(*scan) && *(scan - 1) != '\\') {
+			if (!allow_space || (*scan != ' ' && *scan != '\t'))
+				break;
+		}
 
 		if (*scan == '/') {
 			spec->flags = spec->flags | GIT_ATTR_FNMATCH_FULLPATH;
@@ -418,17 +423,7 @@ int git_attr_fnmatch__parse(
 		return -1;
 	} else {
 		/* strip '\' that might have be used for internal whitespace */
-		char *to = spec->pattern;
-		for (scan = spec->pattern; *scan; to++, scan++) {
-			if (*scan == '\\')
-				scan++; /* skip '\' but include next char */
-			if (to != scan)
-				*to = *scan;
-		}
-		if (to != scan) {
-			*to = '\0';
-			spec->length = (to - spec->pattern);
-		}
+		spec->length = git__unescape(spec->pattern);
 	}
 
 	return 0;
