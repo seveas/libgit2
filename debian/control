@@ -3,10 +3,7 @@ Section: libs
 Priority: extra
 Maintainer: Dennis Kaarsemaker <dennis@kaarsemaker.net>
 Build-Depends: debhelper (>= 7), cmake, libssl-dev
-Standards-Version: 3.8.4
-XS-Python-Version: >= 2.5
-X-Python3-Version: >= 3.1
-Vcs-Git: http://github.com/seveas/python-prctl
+Standards-Version: 3.9.3
 
 Package: libgit2
 Architecture: any
@@ -18,7 +15,7 @@ Description: Library implementation of git
 
 Package: libgit2-dev
 Architecture: all
-Depends: ${shlibs:Depends}, ${misc:Depends}
+Depends: ${shlibs:Depends}, ${misc:Depends}, libgit2 (= ${source:Version})
 Description: Library implementation of git
  libgit2 is a portable, pure C implementation of the Git core methods provided
  as a re-entrant linkable library with a solid API, allowing you to write

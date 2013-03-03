@@ -1,4 +1,10 @@
-libgit2 (0.17.0.1+git20130302) quantal; urgency=low
+libgit2 (0.17.0.1+git20130302-2) quantal; urgency=low
+
+  * Fix packaging mistake caused by debuild -i.git
+
+ -- Dennis Kaarsemaker <dennis@kaarsemaker.net>  Sun, 03 Mar 2013 16:58:10 +0100
+
+libgit2 (0.17.0.1+git20130302-1) quantal; urgency=low
 
   * Release from the development branch
 
