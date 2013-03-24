@@ -472,7 +472,6 @@ void test_diff_workdir__to_index_notify_can_be_used_as_filtering_function(void)
 
 void test_diff_workdir__filemode_changes(void)
 {
-	git_config *cfg;
 	git_diff_list *diff = NULL;
 	diff_expects exp;
 	int use_iterator;
@@ -482,8 +481,7 @@ void test_diff_workdir__filemode_changes(void)
 
 	g_repo = cl_git_sandbox_init("issue_592");
 
-	cl_git_pass(git_repository_config(&cfg, g_repo));
-	cl_git_pass(git_config_set_bool(cfg, "core.filemode", true));
+	cl_repo_set_bool(g_repo, "core.filemode", true);
 
 	/* test once with no mods */
 
@@ -530,12 +528,10 @@ void test_diff_workdir__filemode_changes(void)
 	git_diff_list_free(diff);
 
 	cl_assert(cl_toggle_filemode("issue_592/a.txt"));
-	git_config_free(cfg);
 }
 
 void test_diff_workdir__filemode_changes_with_filemode_false(void)
 {
-	git_config *cfg;
 	git_diff_list *diff = NULL;
 	diff_expects exp;
 
@@ -544,8 +540,7 @@ void test_diff_workdir__filemode_changes_with_filemode_false(void)
 
 	g_repo = cl_git_sandbox_init("issue_592");
 
-	cl_git_pass(git_repository_config(&cfg, g_repo));
-	cl_git_pass(git_config_set_bool(cfg, "core.filemode", false));
+	cl_repo_set_bool(g_repo, "core.filemode", false);
 
 	/* test once with no mods */
 
@@ -578,7 +573,6 @@ void test_diff_workdir__filemode_changes_with_filemode_false(void)
 	git_diff_list_free(diff);
 
 	cl_assert(cl_toggle_filemode("issue_592/a.txt"));
-	git_config_free(cfg);
 }
 
 void test_diff_workdir__head_index_and_workdir_all_differ(void)
@@ -936,7 +930,8 @@ void test_diff_workdir__submodules(void)
 	p_rename("submod2_target/.gitted", "submod2_target/.git");
 
 	rewrite_gitmodules(git_repository_workdir(g_repo));
-	p_rename("submod2/not_submodule/.gitted", "submod2/not_submodule/.git");
+	p_rename("submod2/not-submodule/.gitted", "submod2/not-submodule/.git");
+	p_rename("submod2/not/.gitted", "submod2/not/.git");
 
 	cl_fixture_cleanup("submod2_target");
 
@@ -954,21 +949,22 @@ void test_diff_workdir__submodules(void)
 	/* essentially doing: git diff 873585b94bdeabccea991ea5e3ec1a277895b698 */
 
 	memset(&exp, 0, sizeof(exp));
+
 	cl_git_pass(git_diff_foreach(
 		diff, diff_file_cb, diff_hunk_cb, diff_line_cb, &exp));
 
-	/* the following differs from "git diff 873585" by one "untracked" file
-	 * because the diff list includes the "not_submodule/" directory which
-	 * is not displayed in the text diff.
+	/* the following differs from "git diff 873585" by two "untracked" file
+	 * because the diff list includes the "not" and "not-submodule" dirs which
+	 * are not displayed in the text diff.
 	 */
 
-	cl_assert_equal_i(10, exp.files);
+	cl_assert_equal_i(11, exp.files);
 
 	cl_assert_equal_i(0, exp.file_status[GIT_DELTA_ADDED]);
 	cl_assert_equal_i(0, exp.file_status[GIT_DELTA_DELETED]);
 	cl_assert_equal_i(1, exp.file_status[GIT_DELTA_MODIFIED]);
 	cl_assert_equal_i(0, exp.file_status[GIT_DELTA_IGNORED]);
-	cl_assert_equal_i(9, exp.file_status[GIT_DELTA_UNTRACKED]);
+	cl_assert_equal_i(10, exp.file_status[GIT_DELTA_UNTRACKED]);
 
 	/* the following numbers match "git diff 873585" exactly */
 
