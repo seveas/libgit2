@@ -50,35 +50,139 @@ void reset_index_to_treeish(git_object *treeish)
 	git_index_free(index);
 }
 
-static void test_file_contents_internal(
-	const char *path, const char *expectedcontents, bool strip_cr)
+static void check_file_contents_internal(
+	const char *path,
+	const char *expected_content,
+	bool strip_cr,
+	const char *file,
+	int line,
+	const char *msg)
 {
 	int fd;
 	char data[1024] = {0};
 	git_buf buf = GIT_BUF_INIT;
-	size_t expectedlen = strlen(expectedcontents);
+	size_t expected_len = expected_content ? strlen(expected_content) : 0;
 
 	fd = p_open(path, O_RDONLY);
 	cl_assert(fd >= 0);
 
 	buf.ptr = data;
-	buf.size = p_read(fd, buf.ptr, 1024);
+	buf.size = p_read(fd, buf.ptr, sizeof(data));
 
 	cl_git_pass(p_close(fd));
 
 	if (strip_cr)
 		strip_cr_from_buf(&buf);
 
-	cl_assert_equal_i((int)expectedlen, (int)buf.size);
-	cl_assert_equal_s(expectedcontents, buf.ptr);
+	clar__assert_equal_i((int)expected_len, (int)buf.size, file, line, "strlen(expected_content) != strlen(actual_content)", 1);
+	clar__assert_equal_s(expected_content, buf.ptr, file, line, msg, 1);
 }
 
-void test_file_contents(const char *path, const char *expected)
+void check_file_contents_at_line(
+	const char *path, const char *expected,
+	const char *file, int line, const char *msg)
 {
-	test_file_contents_internal(path, expected, false);
+	check_file_contents_internal(path, expected, false, file, line, msg);
 }
 
-void test_file_contents_nocr(const char *path, const char *expected)
+void check_file_contents_nocr_at_line(
+	const char *path, const char *expected,
+	const char *file, int line, const char *msg)
 {
-	test_file_contents_internal(path, expected, true);
+	check_file_contents_internal(path, expected, true, file, line, msg);
+}
+
+int checkout_count_callback(
+	git_checkout_notify_t why,
+	const char *path,
+	const git_diff_file *baseline,
+	const git_diff_file *target,
+	const git_diff_file *workdir,
+	void *payload)
+{
+	checkout_counts *ct = payload;
+
+	GIT_UNUSED(baseline); GIT_UNUSED(target); GIT_UNUSED(workdir);
+
+	if (why & GIT_CHECKOUT_NOTIFY_CONFLICT) {
+		ct->n_conflicts++;
+
+		if (ct->debug) {
+			if (workdir) {
+				if (baseline) {
+					if (target)
+						fprintf(stderr, "M %s (conflicts with M %s)\n",
+							workdir->path, target->path);
+					else
+						fprintf(stderr, "M %s (conflicts with D %s)\n",
+							workdir->path, baseline->path);
+				} else {
+					if (target)
+						fprintf(stderr, "Existing %s (conflicts with A %s)\n",
+							workdir->path, target->path);
+					else
+						fprintf(stderr, "How can an untracked file be a conflict (%s)\n", workdir->path);
+				}
+			} else {
+				if (baseline) {
+					if (target)
+						fprintf(stderr, "D %s (conflicts with M %s)\n",
+							target->path, baseline->path);
+					else
+						fprintf(stderr, "D %s (conflicts with D %s)\n",
+							baseline->path, baseline->path);
+				} else {
+					if (target)
+						fprintf(stderr, "How can an added file with no workdir be a conflict (%s)\n", target->path);
+					else
+						fprintf(stderr, "How can a nonexistent file be a conflict (%s)\n", path);
+				}
+			}
+		}
+	}
+
+	if (why & GIT_CHECKOUT_NOTIFY_DIRTY) {
+		ct->n_dirty++;
+
+		if (ct->debug) {
+			if (workdir)
+				fprintf(stderr, "M %s\n", workdir->path);
+			else
+				fprintf(stderr, "D %s\n", baseline->path);
+		}
+	}
+
+	if (why & GIT_CHECKOUT_NOTIFY_UPDATED) {
+		ct->n_updates++;
+
+		if (ct->debug) {
+			if (baseline) {
+				if (target)
+					fprintf(stderr, "update: M %s\n", path);
+				else
+					fprintf(stderr, "update: D %s\n", path);
+			} else {
+				if (target)
+					fprintf(stderr, "update: A %s\n", path);
+				else
+					fprintf(stderr, "update: this makes no sense %s\n", path);
+			}
+		}
+	}
+
+	if (why & GIT_CHECKOUT_NOTIFY_UNTRACKED) {
+		ct->n_untracked++;
+
+		if (ct->debug)
+			fprintf(stderr, "? %s\n", path);
+	}
+
+	if (why & GIT_CHECKOUT_NOTIFY_IGNORED) {
+		ct->n_ignored++;
+
+		if (ct->debug)
+			fprintf(stderr, "I %s\n", path);
+	}
+
+	return 0;
 }

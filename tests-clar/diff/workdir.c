@@ -307,169 +307,6 @@ void test_diff_workdir__to_index_with_pathspec(void)
 	git_diff_list_free(diff);
 }
 
-static int assert_called_notifications(
-	const git_diff_list *diff_so_far,
-	const git_diff_delta *delta_to_add,
-	const char *matched_pathspec,
-	void *payload)
-{
-	bool found = false;
-	notify_expected *exp = (notify_expected*)payload;
-	notify_expected *e;;
-
-	GIT_UNUSED(diff_so_far);
-
-	for (e = exp; e->path != NULL; e++) {
-		if (strcmp(e->path, delta_to_add->new_file.path))
-			continue;
-
-		cl_assert_equal_s(e->matched_pathspec, matched_pathspec);
-
-		found = true;
-		break;
-	}
-
-	cl_assert(found);
-	return 0;
-}
-
-void test_diff_workdir__to_index_notify(void)
-{
-	git_diff_options opts = GIT_DIFF_OPTIONS_INIT;
-	git_diff_list *diff = NULL;
-	diff_expects exp;
-
-	char *searched_pathspecs_solo[] = {
-		"*_deleted",
-	};
-	notify_expected expected_matched_pathspecs_solo[] = {
-		{ "file_deleted", "*_deleted" },
-		{ "staged_changes_file_deleted", "*_deleted" },
-		{ NULL, NULL }
-	};
-
-	char *searched_pathspecs_multiple[] = {
-		"staged_changes_cant_find_me",
-		"subdir/modified_cant_find_me",
-		"subdir/*",
-		"staged*"
-	};
-	notify_expected expected_matched_pathspecs_multiple[] = {
-		{ "staged_changes_file_deleted", "staged*" },
-		{ "staged_changes_modified_file", "staged*" },
-		{ "staged_delete_modified_file", "staged*" },
-		{ "staged_new_file_deleted_file", "staged*" },
-		{ "staged_new_file_modified_file", "staged*" },
-		{ "subdir/deleted_file", "subdir/*" },
-		{ "subdir/modified_file", "subdir/*" },
-		{ "subdir/new_file", "subdir/*" },
-		{ NULL, NULL }
-	};
-
-	g_repo = cl_git_sandbox_init("status");
-
-	opts.flags |= GIT_DIFF_INCLUDE_IGNORED | GIT_DIFF_INCLUDE_UNTRACKED;
-	opts.notify_cb = assert_called_notifications;
-	opts.pathspec.strings = searched_pathspecs_solo;
-	opts.pathspec.count   = 1;
-
-	opts.notify_payload = &expected_matched_pathspecs_solo;
-	memset(&exp, 0, sizeof(exp));
-
-	cl_git_pass(git_diff_index_to_workdir(&diff, g_repo, NULL, &opts));
-	cl_git_pass(git_diff_foreach(diff, diff_file_cb, NULL, NULL, &exp));
-
-	cl_assert_equal_i(2, exp.files);
-
-	git_diff_list_free(diff);
-
-	opts.pathspec.strings = searched_pathspecs_multiple;
-	opts.pathspec.count   = 4;
-	opts.notify_payload = &expected_matched_pathspecs_multiple;
-	memset(&exp, 0, sizeof(exp));
-
-	cl_git_pass(git_diff_index_to_workdir(&diff, g_repo, NULL, &opts));
-	cl_git_pass(git_diff_foreach(diff, diff_file_cb, NULL, NULL, &exp));
-
-	cl_assert_equal_i(8, exp.files);
-
-	git_diff_list_free(diff);
-}
-
-static int abort_diff(
-	const git_diff_list *diff_so_far,
-	const git_diff_delta *delta_to_add,
-	const char *matched_pathspec,
-	void *payload)
-{
-	GIT_UNUSED(diff_so_far);
-	GIT_UNUSED(delta_to_add);
-	GIT_UNUSED(matched_pathspec);
-	GIT_UNUSED(payload);
-
-	return -42;
-}
-
-void test_diff_workdir__to_index_notify_can_be_aborted_by_callback(void)
-{
-	git_diff_options opts = GIT_DIFF_OPTIONS_INIT;
-	git_diff_list *diff = NULL;
-	char *pathspec = NULL;
-
-	g_repo = cl_git_sandbox_init("status");
-
-	opts.flags |= GIT_DIFF_INCLUDE_IGNORED | GIT_DIFF_INCLUDE_UNTRACKED;
-	opts.notify_cb = abort_diff;
-	opts.pathspec.strings = &pathspec;
-	opts.pathspec.count   = 1;
-
-	pathspec = "file_deleted";
-	cl_git_fail(git_diff_index_to_workdir(&diff, g_repo, NULL, &opts));
-
-	pathspec = "staged_changes_modified_file";
-	cl_git_fail(git_diff_index_to_workdir(&diff, g_repo, NULL, &opts));
-}
-
-static int filter_all(
-	const git_diff_list *diff_so_far,
-	const git_diff_delta *delta_to_add,
-	const char *matched_pathspec,
-	void *payload)
-{
-	GIT_UNUSED(diff_so_far);
-	GIT_UNUSED(delta_to_add);
-	GIT_UNUSED(matched_pathspec);
-	GIT_UNUSED(payload);
-
-	return 42;
-}
-
-void test_diff_workdir__to_index_notify_can_be_used_as_filtering_function(void)
-{
-	git_diff_options opts = GIT_DIFF_OPTIONS_INIT;
-	git_diff_list *diff = NULL;
-	char *pathspec = NULL;
-	diff_expects exp;
-
-	g_repo = cl_git_sandbox_init("status");
-
-	opts.flags |= GIT_DIFF_INCLUDE_IGNORED | GIT_DIFF_INCLUDE_UNTRACKED;
-	opts.notify_cb = filter_all;
-	opts.pathspec.strings = &pathspec;
-	opts.pathspec.count   = 1;
-
-	pathspec = "*_deleted";
-	memset(&exp, 0, sizeof(exp));
-
-	cl_git_pass(git_diff_index_to_workdir(&diff, g_repo, NULL, &opts));
-	cl_git_pass(git_diff_foreach(diff, diff_file_cb, NULL, NULL, &exp));
-
-	cl_assert_equal_i(0, exp.files);
-
-	git_diff_list_free(diff);
-}
-
-
 void test_diff_workdir__filemode_changes(void)
 {
 	git_diff_list *diff = NULL;
@@ -953,16 +790,31 @@ void test_diff_workdir__submodules(void)
 	cl_git_pass(git_diff_foreach(
 		diff, diff_file_cb, diff_hunk_cb, diff_line_cb, &exp));
 
-	/* the following differs from "git diff 873585" by two "untracked" file
-	 * because the diff list includes the "not" and "not-submodule" dirs which
-	 * are not displayed in the text diff.
+	/* so "git diff 873585" returns:
+	 *  M   .gitmodules
+	 *  A   just_a_dir/contents
+	 *  A   just_a_file
+	 *  A   sm_added_and_uncommited
+	 *  A   sm_changed_file
+	 *  A   sm_changed_head
+	 *  A   sm_changed_index
+	 *  A   sm_changed_untracked_file
+	 *  M   sm_missing_commits
+	 *  A   sm_unchanged
+	 * which is a little deceptive because of the difference between the
+	 * "git diff <treeish>" results from "git_diff_tree_to_workdir".  The
+	 * only significant difference is that those Added items will show up
+	 * as Untracked items in the pure libgit2 diff.
+	 *
+	 * Then add in the two extra untracked items "not" and "not-submodule"
+	 * to get the 12 files reported here.
 	 */
 
-	cl_assert_equal_i(11, exp.files);
+	cl_assert_equal_i(12, exp.files);
 
 	cl_assert_equal_i(0, exp.file_status[GIT_DELTA_ADDED]);
 	cl_assert_equal_i(0, exp.file_status[GIT_DELTA_DELETED]);
-	cl_assert_equal_i(1, exp.file_status[GIT_DELTA_MODIFIED]);
+	cl_assert_equal_i(2, exp.file_status[GIT_DELTA_MODIFIED]);
 	cl_assert_equal_i(0, exp.file_status[GIT_DELTA_IGNORED]);
 	cl_assert_equal_i(10, exp.file_status[GIT_DELTA_UNTRACKED]);
 
@@ -1056,7 +908,6 @@ void test_diff_workdir__can_diff_empty_file(void)
 	/* baseline - make sure there are no outstanding diffs */
 
 	cl_git_pass(git_diff_tree_to_workdir(&diff, g_repo, tree, &opts));
-	git_tree_free(tree);
 	cl_assert_equal_i(2, (int)git_diff_num_deltas(diff));
 	git_diff_list_free(diff);
 
@@ -1082,5 +933,335 @@ void test_diff_workdir__can_diff_empty_file(void)
 	cl_assert_equal_i(3, (int)git_diff_num_deltas(diff));
 	cl_git_pass(git_diff_get_patch(&patch, NULL, diff, 1));
 	git_diff_patch_free(patch);
+	git_diff_list_free(diff);
+
+	git_tree_free(tree);
+}
+
+void test_diff_workdir__to_index_issue_1397(void)
+{
+	git_diff_options opts = GIT_DIFF_OPTIONS_INIT;
+	git_diff_list *diff = NULL;
+	diff_expects exp;
+
+	g_repo = cl_git_sandbox_init("issue_1397");
+
+	cl_repo_set_bool(g_repo, "core.autocrlf", true);
+
+	opts.context_lines = 3;
+	opts.interhunk_lines = 1;
+
+	cl_git_pass(git_diff_index_to_workdir(&diff, g_repo, NULL, &opts));
+
+	memset(&exp, 0, sizeof(exp));
+	cl_git_pass(git_diff_foreach(
+		diff, diff_file_cb, diff_hunk_cb, diff_line_cb, &exp));
+
+	cl_assert_equal_i(0, exp.files);
+	cl_assert_equal_i(0, exp.hunks);
+	cl_assert_equal_i(0, exp.lines);
+
+	git_diff_list_free(diff);
+	diff = NULL;
+
+	cl_git_rewritefile("issue_1397/crlf_file.txt",
+		"first line\r\nsecond line modified\r\nboth with crlf");
+
+	cl_git_pass(git_diff_index_to_workdir(&diff, g_repo, NULL, &opts));
+
+	memset(&exp, 0, sizeof(exp));
+	cl_git_pass(git_diff_foreach(
+		diff, diff_file_cb, diff_hunk_cb, diff_line_cb, &exp));
+
+	cl_assert_equal_i(1, exp.files);
+	cl_assert_equal_i(1, exp.file_status[GIT_DELTA_MODIFIED]);
+
+	cl_assert_equal_i(1, exp.hunks);
+
+	cl_assert_equal_i(5, exp.lines);
+	cl_assert_equal_i(3, exp.line_ctxt);
+	cl_assert_equal_i(1, exp.line_adds);
+	cl_assert_equal_i(1, exp.line_dels);
+
+	git_diff_list_free(diff);
+}
+
+void test_diff_workdir__to_tree_issue_1397(void)
+{
+	const char *a_commit = "7f483a738"; /* the current HEAD */
+	git_tree *a;
+	git_diff_options opts = GIT_DIFF_OPTIONS_INIT;
+	git_diff_list *diff = NULL;
+	git_diff_list *diff2 = NULL;
+	diff_expects exp;
+
+	g_repo = cl_git_sandbox_init("issue_1397");
+
+	cl_repo_set_bool(g_repo, "core.autocrlf", true);
+
+	a = resolve_commit_oid_to_tree(g_repo, a_commit);
+
+	opts.context_lines = 3;
+	opts.interhunk_lines = 1;
+
+	cl_git_pass(git_diff_tree_to_workdir(&diff, g_repo, a, &opts));
+
+	memset(&exp, 0, sizeof(exp));
+	cl_git_pass(git_diff_foreach(
+		diff, diff_file_cb, diff_hunk_cb, diff_line_cb, &exp));
+
+	cl_assert_equal_i(0, exp.files);
+	cl_assert_equal_i(0, exp.hunks);
+	cl_assert_equal_i(0, exp.lines);
+
+	git_diff_list_free(diff);
+	diff = NULL;
+
+	cl_git_pass(git_diff_tree_to_index(&diff, g_repo, a, NULL, &opts));
+	cl_git_pass(git_diff_index_to_workdir(&diff2, g_repo, NULL, &opts));
+	cl_git_pass(git_diff_merge(diff, diff2));
+	git_diff_list_free(diff2);
+
+	memset(&exp, 0, sizeof(exp));
+	cl_git_pass(git_diff_foreach(
+		diff, diff_file_cb, diff_hunk_cb, diff_line_cb, &exp));
+
+	cl_assert_equal_i(0, exp.files);
+	cl_assert_equal_i(0, exp.hunks);
+	cl_assert_equal_i(0, exp.lines);
+
+	git_diff_list_free(diff);
+	git_tree_free(a);
+}
+
+void test_diff_workdir__untracked_directory_scenarios(void)
+{
+	git_diff_options opts = GIT_DIFF_OPTIONS_INIT;
+	git_diff_list *diff = NULL;
+	diff_expects exp;
+	char *pathspec = NULL;
+	static const char *files0[] = {
+		"subdir/deleted_file",
+		"subdir/modified_file",
+		"subdir/new_file",
+		NULL
+	};
+	static const char *files1[] = {
+		"subdir/deleted_file",
+		"subdir/directory/",
+		"subdir/modified_file",
+		"subdir/new_file",
+		NULL
+	};
+	static const char *files2[] = {
+		"subdir/deleted_file",
+		"subdir/directory/more/notignored",
+		"subdir/modified_file",
+		"subdir/new_file",
+		NULL
+	};
+
+	g_repo = cl_git_sandbox_init("status");
+	cl_git_mkfile("status/.gitignore", "ignored\n");
+
+	opts.context_lines = 3;
+	opts.interhunk_lines = 1;
+	opts.flags |= GIT_DIFF_INCLUDE_IGNORED | GIT_DIFF_INCLUDE_UNTRACKED;
+	opts.pathspec.strings = &pathspec;
+	opts.pathspec.count   = 1;
+	pathspec = "subdir";
+
+	/* baseline for "subdir" pathspec */
+
+	memset(&exp, 0, sizeof(exp));
+	exp.names = files0;
+
+	cl_git_pass(git_diff_index_to_workdir(&diff, g_repo, NULL, &opts));
+
+	cl_git_pass(git_diff_foreach(diff, diff_file_cb, NULL, NULL, &exp));
+
+	cl_assert_equal_i(3, exp.files);
+	cl_assert_equal_i(0, exp.file_status[GIT_DELTA_ADDED]);
+	cl_assert_equal_i(1, exp.file_status[GIT_DELTA_DELETED]);
+	cl_assert_equal_i(1, exp.file_status[GIT_DELTA_MODIFIED]);
+	cl_assert_equal_i(0, exp.file_status[GIT_DELTA_IGNORED]);
+	cl_assert_equal_i(1, exp.file_status[GIT_DELTA_UNTRACKED]);
+
+	git_diff_list_free(diff);
+
+	/* empty directory */
+
+	cl_git_pass(p_mkdir("status/subdir/directory", 0777));
+
+	memset(&exp, 0, sizeof(exp));
+	exp.names = files1;
+
+	cl_git_pass(git_diff_index_to_workdir(&diff, g_repo, NULL, &opts));
+
+	cl_git_pass(git_diff_foreach(diff, diff_file_cb, NULL, NULL, &exp));
+
+	cl_assert_equal_i(4, exp.files);
+	cl_assert_equal_i(0, exp.file_status[GIT_DELTA_ADDED]);
+	cl_assert_equal_i(1, exp.file_status[GIT_DELTA_DELETED]);
+	cl_assert_equal_i(1, exp.file_status[GIT_DELTA_MODIFIED]);
+	cl_assert_equal_i(1, exp.file_status[GIT_DELTA_IGNORED]);
+	cl_assert_equal_i(1, exp.file_status[GIT_DELTA_UNTRACKED]);
+
+	git_diff_list_free(diff);
+
+	/* empty directory in empty directory */
+
+	cl_git_pass(p_mkdir("status/subdir/directory/empty", 0777));
+
+	memset(&exp, 0, sizeof(exp));
+	exp.names = files1;
+
+	cl_git_pass(git_diff_index_to_workdir(&diff, g_repo, NULL, &opts));
+
+	cl_git_pass(git_diff_foreach(diff, diff_file_cb, NULL, NULL, &exp));
+
+	cl_assert_equal_i(4, exp.files);
+	cl_assert_equal_i(0, exp.file_status[GIT_DELTA_ADDED]);
+	cl_assert_equal_i(1, exp.file_status[GIT_DELTA_DELETED]);
+	cl_assert_equal_i(1, exp.file_status[GIT_DELTA_MODIFIED]);
+	cl_assert_equal_i(1, exp.file_status[GIT_DELTA_IGNORED]);
+	cl_assert_equal_i(1, exp.file_status[GIT_DELTA_UNTRACKED]);
+
+	git_diff_list_free(diff);
+
+	/* directory with only ignored files */
+
+	cl_git_pass(p_mkdir("status/subdir/directory/deeper", 0777));
+	cl_git_mkfile("status/subdir/directory/deeper/ignored", "ignore me\n");
+
+	cl_git_pass(p_mkdir("status/subdir/directory/another", 0777));
+	cl_git_mkfile("status/subdir/directory/another/ignored", "ignore me\n");
+
+	memset(&exp, 0, sizeof(exp));
+	exp.names = files1;
+
+	cl_git_pass(git_diff_index_to_workdir(&diff, g_repo, NULL, &opts));
+
+	cl_git_pass(git_diff_foreach(diff, diff_file_cb, NULL, NULL, &exp));
+
+	cl_assert_equal_i(4, exp.files);
+	cl_assert_equal_i(0, exp.file_status[GIT_DELTA_ADDED]);
+	cl_assert_equal_i(1, exp.file_status[GIT_DELTA_DELETED]);
+	cl_assert_equal_i(1, exp.file_status[GIT_DELTA_MODIFIED]);
+	cl_assert_equal_i(1, exp.file_status[GIT_DELTA_IGNORED]);
+	cl_assert_equal_i(1, exp.file_status[GIT_DELTA_UNTRACKED]);
+
+	git_diff_list_free(diff);
+
+	/* directory with ignored directory (contents irrelevant) */
+
+	cl_git_pass(p_mkdir("status/subdir/directory/more", 0777));
+	cl_git_pass(p_mkdir("status/subdir/directory/more/ignored", 0777));
+	cl_git_mkfile("status/subdir/directory/more/ignored/notignored",
+		"inside ignored dir\n");
+
+	memset(&exp, 0, sizeof(exp));
+	exp.names = files1;
+
+	cl_git_pass(git_diff_index_to_workdir(&diff, g_repo, NULL, &opts));
+
+	cl_git_pass(git_diff_foreach(diff, diff_file_cb, NULL, NULL, &exp));
+
+	cl_assert_equal_i(4, exp.files);
+	cl_assert_equal_i(0, exp.file_status[GIT_DELTA_ADDED]);
+	cl_assert_equal_i(1, exp.file_status[GIT_DELTA_DELETED]);
+	cl_assert_equal_i(1, exp.file_status[GIT_DELTA_MODIFIED]);
+	cl_assert_equal_i(1, exp.file_status[GIT_DELTA_IGNORED]);
+	cl_assert_equal_i(1, exp.file_status[GIT_DELTA_UNTRACKED]);
+
+	git_diff_list_free(diff);
+
+	/* quick version avoids directory scan */
+
+	opts.flags = opts.flags | GIT_DIFF_FAST_UNTRACKED_DIRS;
+
+	memset(&exp, 0, sizeof(exp));
+	exp.names = files1;
+
+	cl_git_pass(git_diff_index_to_workdir(&diff, g_repo, NULL, &opts));
+
+	cl_git_pass(git_diff_foreach(diff, diff_file_cb, NULL, NULL, &exp));
+
+	cl_assert_equal_i(4, exp.files);
+	cl_assert_equal_i(0, exp.file_status[GIT_DELTA_ADDED]);
+	cl_assert_equal_i(1, exp.file_status[GIT_DELTA_DELETED]);
+	cl_assert_equal_i(1, exp.file_status[GIT_DELTA_MODIFIED]);
+	cl_assert_equal_i(0, exp.file_status[GIT_DELTA_IGNORED]);
+	cl_assert_equal_i(2, exp.file_status[GIT_DELTA_UNTRACKED]);
+
+	git_diff_list_free(diff);
+
+	/* directory with nested non-ignored content */
+
+	opts.flags = opts.flags & ~GIT_DIFF_FAST_UNTRACKED_DIRS;
+
+	cl_git_mkfile("status/subdir/directory/more/notignored",
+		"not ignored deep under untracked\n");
+
+	memset(&exp, 0, sizeof(exp));
+	exp.names = files1;
+
+	cl_git_pass(git_diff_index_to_workdir(&diff, g_repo, NULL, &opts));
+
+	cl_git_pass(git_diff_foreach(diff, diff_file_cb, NULL, NULL, &exp));
+
+	cl_assert_equal_i(4, exp.files);
+	cl_assert_equal_i(0, exp.file_status[GIT_DELTA_ADDED]);
+	cl_assert_equal_i(1, exp.file_status[GIT_DELTA_DELETED]);
+	cl_assert_equal_i(1, exp.file_status[GIT_DELTA_MODIFIED]);
+	cl_assert_equal_i(0, exp.file_status[GIT_DELTA_IGNORED]);
+	cl_assert_equal_i(2, exp.file_status[GIT_DELTA_UNTRACKED]);
+
+	git_diff_list_free(diff);
+
+	/* use RECURSE_UNTRACKED_DIRS to get actual untracked files (no ignores) */
+
+	opts.flags = opts.flags & ~GIT_DIFF_INCLUDE_IGNORED;
+	opts.flags = opts.flags | GIT_DIFF_RECURSE_UNTRACKED_DIRS;
+
+	memset(&exp, 0, sizeof(exp));
+	exp.names = files2;
+
+	cl_git_pass(git_diff_index_to_workdir(&diff, g_repo, NULL, &opts));
+
+	cl_git_pass(git_diff_foreach(diff, diff_file_cb, NULL, NULL, &exp));
+
+	cl_assert_equal_i(4, exp.files);
+	cl_assert_equal_i(0, exp.file_status[GIT_DELTA_ADDED]);
+	cl_assert_equal_i(1, exp.file_status[GIT_DELTA_DELETED]);
+	cl_assert_equal_i(1, exp.file_status[GIT_DELTA_MODIFIED]);
+	cl_assert_equal_i(0, exp.file_status[GIT_DELTA_IGNORED]);
+	cl_assert_equal_i(2, exp.file_status[GIT_DELTA_UNTRACKED]);
+
+	git_diff_list_free(diff);
+}
+
+
+void test_diff_workdir__untracked_directory_comes_last(void)
+{
+	git_diff_options opts = GIT_DIFF_OPTIONS_INIT;
+	git_diff_list *diff = NULL;
+
+	g_repo = cl_git_sandbox_init("renames");
+
+	cl_git_mkfile("renames/.gitignore", "*.ign\n");
+	cl_git_pass(p_mkdir("renames/zzz_untracked", 0777));
+	cl_git_mkfile("renames/zzz_untracked/an.ign", "ignore me please");
+	cl_git_mkfile("renames/zzz_untracked/skip.ign", "ignore me really");
+	cl_git_mkfile("renames/zzz_untracked/test.ign", "ignore me now");
+
+	opts.context_lines = 3;
+	opts.interhunk_lines = 1;
+	opts.flags |= GIT_DIFF_INCLUDE_IGNORED | GIT_DIFF_INCLUDE_UNTRACKED;
+
+	cl_git_pass(git_diff_index_to_workdir(&diff, g_repo, NULL, &opts));
+
+	cl_assert(diff != NULL);
+
 	git_diff_list_free(diff);
 }

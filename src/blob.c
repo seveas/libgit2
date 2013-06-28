@@ -8,40 +8,45 @@
 #include "git2/common.h"
 #include "git2/object.h"
 #include "git2/repository.h"
+#include "git2/odb_backend.h"
 
 #include "common.h"
+#include "filebuf.h"
 #include "blob.h"
 #include "filter.h"
+#include "buf_text.h"
 
 const void *git_blob_rawcontent(const git_blob *blob)
 {
 	assert(blob);
-	return blob->odb_object->raw.data;
+	return git_odb_object_data(blob->odb_object);
 }
 
 git_off_t git_blob_rawsize(const git_blob *blob)
 {
 	assert(blob);
-	return (git_off_t)blob->odb_object->raw.len;
+	return (git_off_t)git_odb_object_size(blob->odb_object);
 }
 
 int git_blob__getbuf(git_buf *buffer, git_blob *blob)
 {
 	return git_buf_set(
-		buffer, blob->odb_object->raw.data, blob->odb_object->raw.len);
+		buffer,
+		git_odb_object_data(blob->odb_object),
+		git_odb_object_size(blob->odb_object));
 }
 
-void git_blob__free(git_blob *blob)
+void git_blob__free(void *blob)
 {
-	git_odb_object_free(blob->odb_object);
+	git_odb_object_free(((git_blob *)blob)->odb_object);
 	git__free(blob);
 }
 
-int git_blob__parse(git_blob *blob, git_odb_object *odb_obj)
+int git_blob__parse(void *blob, git_odb_object *odb_obj)
 {
 	assert(blob);
 	git_cached_obj_incref((git_cached_obj *)odb_obj);
-	blob->odb_object = odb_obj;
+	((git_blob *)blob)->odb_object = odb_obj;
 	return 0;
 }
 
@@ -221,7 +226,9 @@ int git_blob_create_fromworkdir(git_oid *oid, git_repository *repo, const char *
 		return -1;
 	}
 
-	error = blob_create_internal(oid, repo, git_buf_cstr(&full_path), git_buf_cstr(&full_path), true);
+	error = blob_create_internal(
+		oid, repo, git_buf_cstr(&full_path),
+		git_buf_cstr(&full_path) + strlen(workdir), true);
 
 	git_buf_free(&full_path);
 	return error;
@@ -231,13 +238,21 @@ int git_blob_create_fromdisk(git_oid *oid, git_repository *repo, const char *pat
 {
 	int error;
 	git_buf full_path = GIT_BUF_INIT;
+	const char *workdir, *hintpath;
 
 	if ((error = git_path_prettify(&full_path, path, NULL)) < 0) {
 		git_buf_free(&full_path);
 		return error;
 	}
 
-	error = blob_create_internal(oid, repo, git_buf_cstr(&full_path), git_buf_cstr(&full_path), true);
+	hintpath = git_buf_cstr(&full_path);
+	workdir  = git_repository_workdir(repo);
+
+	if (workdir && !git__prefixcmp(hintpath, workdir))
+		hintpath += strlen(workdir);
+
+	error = blob_create_internal(
+		oid, repo, git_buf_cstr(&full_path), hintpath, true);
 
 	git_buf_free(&full_path);
 	return error;
@@ -303,8 +318,8 @@ int git_blob_is_binary(git_blob *blob)
 
 	assert(blob);
 
-	content.ptr = blob->odb_object->raw.data;
-	content.size = min(blob->odb_object->raw.len, 4000);
+	content.ptr = blob->odb_object->buffer;
+	content.size = min(blob->odb_object->cached.size, 4000);
 
 	return git_buf_text_is_binary(&content);
 }

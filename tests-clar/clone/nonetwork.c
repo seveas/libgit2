@@ -1,6 +1,8 @@
 #include "clar_libgit2.h"
 
 #include "git2/clone.h"
+#include "remote.h"
+#include "fileops.h"
 #include "repository.h"
 
 #define LIVE_REPO_URL "git://github.com/libgit2/TestGitRepository"
@@ -148,7 +150,7 @@ void test_clone_nonetwork__custom_fetch_spec(void)
 	cl_git_pass(git_clone(&g_repo, cl_git_fixture_url("testrepo.git"), "./foo", &g_options));
 
 	cl_git_pass(git_remote_load(&g_remote, g_repo, "origin"));
-	actual_fs = git_remote_fetchspec(g_remote);
+	actual_fs = git_remote_get_refspec(g_remote, 0);
 	cl_assert_equal_s("refs/heads/master", git_refspec_src(actual_fs));
 	cl_assert_equal_s("refs/heads/foo", git_refspec_dst(actual_fs));
 
@@ -164,13 +166,14 @@ void test_clone_nonetwork__custom_push_spec(void)
 	cl_git_pass(git_clone(&g_repo, cl_git_fixture_url("testrepo.git"), "./foo", &g_options));
 
 	cl_git_pass(git_remote_load(&g_remote, g_repo, "origin"));
-	actual_fs = git_remote_pushspec(g_remote);
+	actual_fs = git_remote_get_refspec(g_remote, git_remote_refspec_count(g_remote) - 1);
 	cl_assert_equal_s("refs/heads/master", git_refspec_src(actual_fs));
 	cl_assert_equal_s("refs/heads/foo", git_refspec_dst(actual_fs));
 }
 
 void test_clone_nonetwork__custom_autotag(void)
 {
+	git_remote *origin;
 	git_strarray tags = {0};
 
 	g_options.remote_autotag = GIT_REMOTE_DOWNLOAD_TAGS_NONE;
@@ -179,7 +182,26 @@ void test_clone_nonetwork__custom_autotag(void)
 	cl_git_pass(git_tag_list(&tags, g_repo));
 	cl_assert_equal_sz(0, tags.count);
 
+	cl_git_pass(git_remote_load(&origin, g_repo, "origin"));
+	cl_assert_equal_i(GIT_REMOTE_DOWNLOAD_TAGS_NONE, origin->download_tags);
+
 	git_strarray_free(&tags);
+	git_remote_free(origin);
+}
+
+void test_clone_nonetwork__custom_autotag_tags_all(void)
+{
+	git_strarray tags = {0};
+	git_remote *origin;
+
+	g_options.remote_autotag = GIT_REMOTE_DOWNLOAD_TAGS_ALL;
+	cl_git_pass(git_clone(&g_repo, cl_git_fixture_url("testrepo.git"), "./foo", &g_options));
+
+	cl_git_pass(git_remote_load(&origin, g_repo, "origin"));
+	cl_assert_equal_i(GIT_REMOTE_DOWNLOAD_TAGS_ALL, origin->download_tags);
+
+	git_strarray_free(&tags);
+	git_remote_free(origin);
 }
 
 void test_clone_nonetwork__cope_with_already_existing_directory(void)
@@ -214,23 +236,23 @@ void test_clone_nonetwork__can_checkout_given_branch(void)
 
 void test_clone_nonetwork__can_detached_head(void)
 {
-	git_object *commit;
+	git_object *obj;
 	git_repository *cloned;
 	git_reference *cloned_head;
 
 	cl_git_pass(git_clone(&g_repo, cl_git_fixture_url("testrepo.git"), "./foo", &g_options));
 
-	cl_git_pass(git_revparse_single(&commit, g_repo, "master~1"));
-	cl_git_pass(git_repository_set_head_detached(g_repo, git_object_id(commit)));
+	cl_git_pass(git_revparse_single(&obj, g_repo, "master~1"));
+	cl_git_pass(git_repository_set_head_detached(g_repo, git_object_id(obj)));
 
 	cl_git_pass(git_clone(&cloned, "./foo", "./foo1", &g_options));
 
 	cl_assert(git_repository_head_detached(cloned));
 
 	cl_git_pass(git_repository_head(&cloned_head, cloned));
-	cl_assert(!git_oid_cmp(git_object_id(commit), git_reference_target(cloned_head)));
+	cl_assert(!git_oid_cmp(git_object_id(obj), git_reference_target(cloned_head)));
 
-	git_commit_free((git_commit*)commit);
+	git_object_free(obj);
 	git_reference_free(cloned_head);
 	git_repository_free(cloned);
 

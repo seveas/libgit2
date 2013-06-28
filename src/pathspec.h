@@ -16,7 +16,7 @@
 extern char *git_pathspec_prefix(const git_strarray *pathspec);
 
 /* is there anything in the spec that needs to be filtered on */
-extern bool git_pathspec_is_interesting(const git_strarray *pathspec);
+extern bool git_pathspec_is_empty(const git_strarray *pathspec);
 
 /* build a vector of fnmatch patterns to evaluate efficiently */
 extern int git_pathspec_init(
@@ -36,5 +36,19 @@ extern bool git_pathspec_match_path(
 	bool disable_fnmatch,
 	bool casefold,
 	const char **matched_pathspec);
+
+/* easy pathspec setup */
+
+typedef struct {
+	char *prefix;
+	git_vector pathspec;
+	git_pool pool;
+} git_pathspec_context;
+
+extern int git_pathspec_context_init(
+	git_pathspec_context *ctxt, const git_strarray *paths);
+
+extern void git_pathspec_context_free(
+	git_pathspec_context *ctxt);
 
 #endif

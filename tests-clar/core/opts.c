@@ -1,4 +1,5 @@
 #include "clar_libgit2.h"
+#include "cache.h"
 
 void test_core_opts__readwrite(void)
 {

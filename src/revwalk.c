@@ -11,6 +11,7 @@
 #include "pool.h"
 
 #include "revwalk.h"
+#include "git2/revparse.h"
 #include "merge.h"
 
 #include <regex.h>
@@ -185,7 +186,7 @@ static int push_glob(git_revwalk *walk, const char *glob, int hide)
 	data.hide = hide;
 
 	if (git_reference_foreach_glob(
-		walk->repo, git_buf_cstr(&buf), GIT_REF_LISTALL, push_glob_cb, &data) < 0)
+		walk->repo, git_buf_cstr(&buf), push_glob_cb, &data) < 0)
 		goto on_error;
 
 	regfree(&preg);
@@ -226,6 +227,31 @@ int git_revwalk_push_ref(git_revwalk *walk, const char *refname)
 {
 	assert(walk && refname);
 	return push_ref(walk, refname, 0);
+}
+
+int git_revwalk_push_range(git_revwalk *walk, const char *range)
+{
+	git_revspec revspec;
+	int error = 0;
+
+	if ((error = git_revparse(&revspec, walk->repo, range)))
+		return error;
+
+	if (revspec.flags & GIT_REVPARSE_MERGE_BASE) {
+		/* TODO: support "<commit>...<commit>" */
+		giterr_set(GITERR_INVALID, "Symmetric differences not implemented in revwalk");
+		return GIT_EINVALIDSPEC;
+	}
+
+	if ((error = push_commit(walk, git_object_id(revspec.from), 1)))
+		goto out;
+
+	error = push_commit(walk, git_object_id(revspec.to), 0);
+
+out:
+	git_object_free(revspec.from);
+	git_object_free(revspec.to);
+	return error;
 }
 
 int git_revwalk_hide_ref(git_revwalk *walk, const char *refname)

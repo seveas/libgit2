@@ -36,7 +36,8 @@ typedef struct {
 	git_atomic cancelled;
 	git_repository *repo;
 	git_vector refs;
-	unsigned connected : 1;
+	unsigned connected : 1,
+		have_refs : 1;
 } transport_local;
 
 static int add_ref(transport_local *t, const char *name)
@@ -118,14 +119,23 @@ on_error:
 
 static int store_refs(transport_local *t)
 {
-	unsigned int i;
+	size_t i;
+	git_remote_head *head;
 	git_strarray ref_names = {0};
 
 	assert(t);
 
-	if (git_reference_list(&ref_names, t->repo, GIT_REF_LISTALL) < 0 ||
-		git_vector_init(&t->refs, ref_names.count, NULL) < 0)
+	if (git_reference_list(&ref_names, t->repo) < 0)
 		goto on_error;
+
+	/* Clear all heads we might have fetched in a previous connect */
+	git_vector_foreach(&t->refs, i, head) {
+		git__free(head->name);
+		git__free(head);
+	}
+
+	/* Clear the vector so we can reuse it */
+	git_vector_clear(&t->refs);
 
 	/* Sort the references first */
 	git__tsort((void **)ref_names.strings, ref_names.count, &git__strcmp_cb);
@@ -139,6 +149,7 @@ static int store_refs(transport_local *t)
 			goto on_error;
 	}
 
+	t->have_refs = 1;
 	git_strarray_free(&ref_names);
 	return 0;
 
@@ -208,8 +219,8 @@ static int local_ls(git_transport *transport, git_headlist_cb list_cb, void *pay
 	unsigned int i;
 	git_remote_head *head = NULL;
 
-	if (!t->connected) {
-		giterr_set(GITERR_NET, "The transport is not connected");
+	if (!t->have_refs) {
+		giterr_set(GITERR_NET, "The transport has not yet loaded the refs");
 		return -1;
 	}
 
@@ -280,7 +291,7 @@ static int local_push_copy_object(
 		odb_obj_size) < 0 ||
 		odb_stream->finalize_write(&remote_odb_obj_oid, odb_stream) < 0) {
 		error = -1;
-	} else if (git_oid_cmp(&obj->id, &remote_odb_obj_oid) != 0) {
+	} else if (git_oid__cmp(&obj->id, &remote_odb_obj_oid) != 0) {
 		giterr_set(GITERR_ODB, "Error when writing object to remote odb "
 			"during local push operation. Remote odb object oid does not "
 			"match local oid.");
@@ -346,7 +357,7 @@ static int local_push(
 	if ((error = git_repository_open(&remote_repo, push->remote->url)) < 0)
 		return error;
 
-	/* We don't currently support pushing locally to non-bare repos. Proper 
+	/* We don't currently support pushing locally to non-bare repos. Proper
 	   non-bare repo push support would require checking configs to see if
 	   we should override the default 'don't let this happen' behavior */
 	if (!remote_repo->is_bare) {
@@ -493,7 +504,7 @@ static int local_download_pack(
 			/* Tag or some other wanted object. Add it on its own */
 			error = git_packbuilder_insert(pack, &rhead->oid, rhead->name);
 		}
-      git_object_free(obj);
+		git_object_free(obj);
 	}
 
 	/* Walk the objects, building a packfile */
@@ -569,8 +580,6 @@ static void local_cancel(git_transport *transport)
 static int local_close(git_transport *transport)
 {
 	transport_local *t = (transport_local *)transport;
-	size_t i;
-	git_remote_head *head;
 
 	t->connected = 0;
 
@@ -578,13 +587,6 @@ static int local_close(git_transport *transport)
 		git_repository_free(t->repo);
 		t->repo = NULL;
 	}
-
-	git_vector_foreach(&t->refs, i, head) {
-		git__free(head->name);
-		git__free(head);
-	}
-
-	git_vector_free(&t->refs);
 
 	if (t->url) {
 		git__free(t->url);
@@ -597,6 +599,15 @@ static int local_close(git_transport *transport)
 static void local_free(git_transport *transport)
 {
 	transport_local *t = (transport_local *)transport;
+	size_t i;
+	git_remote_head *head;
+
+	git_vector_foreach(&t->refs, i, head) {
+		git__free(head->name);
+		git__free(head);
+	}
+
+	git_vector_free(&t->refs);
 
 	/* Close the transport, if it's still open. */
 	local_close(transport);
@@ -630,6 +641,7 @@ int git_transport_local(git_transport **out, git_remote *owner, void *param)
 	t->parent.read_flags = local_read_flags;
 	t->parent.cancel = local_cancel;
 
+	git_vector_init(&t->refs, 0, NULL);
 	t->owner = owner;
 
 	*out = (git_transport *) t;
