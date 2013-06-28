@@ -1,3 +1,9 @@
+libgit2 (0.19.0-1) quantal; urgency=low
+
+  * Update to 0.19.0 + some commits
+
+ -- Dennis Kaarsemaker <dennis@kaarsemaker.net>  Fri, 28 Jun 2013 09:44:23 +0200
+
 libgit2 (0.17.0.1+git20130324-1) quantal; urgency=low
 
   * Update to new git pull
