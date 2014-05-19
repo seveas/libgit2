@@ -213,21 +213,17 @@ static int local_connect(
 	return 0;
 }
 
-static int local_ls(git_transport *transport, git_headlist_cb list_cb, void *payload)
+static int local_ls(const git_remote_head ***out, size_t *size, git_transport *transport)
 {
 	transport_local *t = (transport_local *)transport;
-	unsigned int i;
-	git_remote_head *head = NULL;
 
 	if (!t->have_refs) {
 		giterr_set(GITERR_NET, "The transport has not yet loaded the refs");
 		return -1;
 	}
 
-	git_vector_foreach(&t->refs, i, head) {
-		if (list_cb(head, payload))
-			return GIT_EUSER;
-	}
+	*out = (const git_remote_head **) t->refs.contents;
+	*size = t->refs.length;
 
 	return 0;
 }
@@ -287,9 +283,9 @@ static int local_push_copy_object(
 		odb_obj_size, odb_obj_type)) < 0)
 		goto on_error;
 
-	if (odb_stream->write(odb_stream, (char *)git_odb_object_data(odb_obj),
+	if (git_odb_stream_write(odb_stream, (char *)git_odb_object_data(odb_obj),
 		odb_obj_size) < 0 ||
-		odb_stream->finalize_write(&remote_odb_obj_oid, odb_stream) < 0) {
+		git_odb_stream_finalize_write(&remote_odb_obj_oid, odb_stream) < 0) {
 		error = -1;
 	} else if (git_oid__cmp(&obj->id, &remote_odb_obj_oid) != 0) {
 		giterr_set(GITERR_ODB, "Error when writing object to remote odb "
@@ -298,7 +294,7 @@ static int local_push_copy_object(
 		error = -1;
 	}
 
-	odb_stream->free(odb_stream);
+	git_odb_stream_free(odb_stream);
 
 on_error:
 	git_odb_object_free(odb_obj);
@@ -361,7 +357,8 @@ static int local_push(
 	   non-bare repo push support would require checking configs to see if
 	   we should override the default 'don't let this happen' behavior */
 	if (!remote_repo->is_bare) {
-		error = -1;
+		error = GIT_EBAREREPO;
+		giterr_set(GITERR_INVALID, "Local push doesn't (yet) support pushing to non-bare repos.");
 		goto on_error;
 	}
 
@@ -433,7 +430,7 @@ static int local_push(
 
 		if (!url || t->parent.close(&t->parent) < 0 ||
 			t->parent.connect(&t->parent, url,
-			push->remote->cred_acquire_cb, NULL, GIT_DIRECTION_PUSH, flags))
+			push->remote->callbacks.credentials, NULL, GIT_DIRECTION_PUSH, flags))
 			goto on_error;
 	}
 
@@ -458,7 +455,7 @@ static int foreach_cb(void *buf, size_t len, void *payload)
 	foreach_data *data = (foreach_data*)payload;
 
 	data->stats->received_bytes += len;
-	return data->writepack->add(data->writepack, buf, len, data->stats);
+	return data->writepack->append(data->writepack, buf, len, data->stats);
 }
 
 static int local_download_pack(
